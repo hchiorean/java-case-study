@@ -24,3 +24,9 @@ dependencies {
 tasks.withType(JavaCompile) {
     options.compilerArgs << "-Xlint:all"
 }
+
+sourceSets {
+    main {
+        resources.srcDirs = ['data']
+    }
+}

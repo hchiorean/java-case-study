@@ -1,19 +1,12 @@
-import com.trivago.mp.casestudy.DateRange;
-import com.trivago.mp.casestudy.HotelSearchEngine;
-import com.trivago.mp.casestudy.HotelSearchEngineImpl;
-import com.trivago.mp.casestudy.HotelWithOffers;
-import com.trivago.mp.casestudy.Offer;
-import com.trivago.mp.casestudy.OfferProvider;
+import com.trivago.mp.casestudy.*;
 
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static junit.framework.TestCase.assertTrue;
 import static junit.framework.TestCase.fail;
@@ -164,5 +157,37 @@ public class HotelSearchEngineTest {
                 hotelWithOffers.getHotel().getId()
             ), hotelsInMunich.contains(hotelWithOffers.getHotel().getId()));
         }
+    }
+
+    @Test
+    public void testShouldNotSendDuplicateQueriesToProvider() throws IOException {
+        // This accounts for the fact that requests are sent from multiple threads
+        ConcurrentHashMap<Integer, Set<Integer>> seenHotelIdsbyAdvertiserId = new ConcurrentHashMap<>();
+        OfferProvider testProvider = (advertiser, hotelIds, dateRange) -> {
+            seenHotelIdsbyAdvertiserId.compute(advertiser.getId(), (aid, hids) -> {
+                if(hids == null)
+                    return new HashSet<>(hotelIds);
+                int seenHotelsCount = hids.size();
+                int expectedHotelsCount = seenHotelsCount + hotelIds.size();
+                hids.addAll(hotelIds);
+                if(hids.size() != expectedHotelsCount)
+                    throw new IllegalArgumentException("Some hotels were already requested for advertiser " + advertiser);
+                return hids;
+            });
+            return dummyOfferProvider.getOffersFromAdvertiser(advertiser, hotelIds, dateRange);
+        };
+
+        HotelSearchEngine hotelSearchEngine = new HotelSearchEngineImpl();
+        hotelSearchEngine.initialize();
+        DateRange dateRange = new DateRange(20180214, 201802016);
+
+        Files.readAllLines(Paths.get("data/cities.csv"))
+        .stream()
+        .skip(1) //skip the header
+        .map(line -> line.split(",")[1]) // read the city name
+        .forEach(city -> {
+            List<HotelWithOffers> offers = hotelSearchEngine.performSearch(city, dateRange, testProvider);
+            assertFalse("No offers for " + city, offers.isEmpty());
+        });
     }
 }
